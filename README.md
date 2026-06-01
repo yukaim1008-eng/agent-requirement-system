@@ -107,7 +107,7 @@ streamlit run main.py
 
 技术评估员调用 `query_knowledge_base` 工具时，本系统用 **RAG 项目自己的 venv** 拉起其 `backend.py` 子进程，走 **JSON 行协议** 通信（`{"query":...}` → `{"answer":..., "citations":[...]}`）。这样 RAG 的重模型（BGE / reranker / torch）完全隔离在独立进程，不污染本项目依赖；后端进程常驻复用，避免每次重复加载模型。
 
-## 🧪 踩过的坑（面试可讲）
+## 🧪 踩过的坑与解决
 
 1. **CrewAI + DeepSeek 工具名必须 ASCII**：DeepSeek 走 OpenAI 兼容接口，函数名只能含 `字母/数字/_/-`，中文工具名会被清空 → `function name cannot be empty`。
 2. **subprocess `readline()` 阻塞陷阱**：用 `readline()` 读子进程响应、外层套 `timeout` 循环是无效的——`readline` 会一直阻塞，timeout 永远检查不到，导致整个流程卡死。改用「后台读取线程 + 队列 + `queue.get(timeout=)`」，卡住即超时杀进程走降级。

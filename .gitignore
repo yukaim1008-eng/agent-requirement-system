@@ -16,3 +16,7 @@ output/
 
 # logs
 *.log
+
+# 个人工作日志 / AI 草稿 —— 本地保留，不进公开仓库
+OPTIMIZATION_SUMMARY.md
+claude1.md

@@ -20,12 +20,3 @@
 
 ## 技术栈
 Python 3.13 · CrewAI · DeepSeek API · Tavily Search · Streamlit · python-docx
-
-## 我的背景
-- 大三信管专业，2027届
-- 已完成一个基础练手 RAG 项目（银行问答，3天）
-- 会用 Claude Code 辅助开发
-- 目标：Ai agent实习
-
-## 当前状态
-⬜ 空文件夹，待 Day 0 初始化
