@@ -32,6 +32,25 @@ from utils.auth import password_matches
 
 st.set_page_config(page_title="多 Agent 需求分析系统", page_icon="🤖", layout="wide")
 
+# 注入少量 CSS：去默认毛坯感（隐藏菜单/页脚）+ 收窄主内容提升可读性 + 按钮圆角。只动观感，不碰逻辑。
+st.markdown(
+    """
+    <style>
+      #MainMenu {visibility: hidden;}
+      footer {visibility: hidden;}
+      header[data-testid="stHeader"] {background: transparent;}
+      /* 主内容居中收窄，避免宽屏下"左重右空" */
+      .block-container {padding-top: 2rem; padding-bottom: 4rem; max-width: 920px; margin: 0 auto;}
+      .stButton button, .stDownloadButton button {border-radius: 8px; font-weight: 600;}
+      h1, h2, h3 {letter-spacing: -0.01em;}
+      /* 顶部亮点小药丸 */
+      .pill {display:inline-block; background:#EEF0FB; color:#4F46E5; border:1px solid #E0E3F5;
+             padding:5px 13px; border-radius:999px; font-size:0.85rem; font-weight:600; margin:0 6px 6px 0;}
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
 # ==================== 阶段 → Agent 展示元数据 ====================
 AGENT_META = {
     "协调拆解": ("🧭", "协调员"),
@@ -100,16 +119,26 @@ def _check_access():
     if st.session_state.get("authenticated"):
         return
 
-    # 未通过验证：只渲染口令框，st.stop() 挡住后面所有内容（含侧边栏与主区）
-    st.title("🔒 访问验证")
-    st.caption("这是一个会调用付费 API 的演示，已加口令防止成本被刷。请输入访问口令继续。")
-    pw = st.text_input("访问口令", type="password")
-    if st.button("进入", type="primary"):
-        if password_matches(pw, configured):
-            st.session_state["authenticated"] = True
-            st.rerun()
-        else:
-            st.error("❌ 口令错误")
+    # 未通过验证：居中成一张卡片，st.stop() 挡住后面所有内容（含侧边栏与主区）
+    _, mid, _ = st.columns([1, 1.4, 1])
+    with mid:
+        st.markdown(
+            "<div style='text-align:center; margin-top:7vh;'>"
+            "<div style='font-size:2.6rem;'>🤖</div>"
+            "<h2 style='margin:0.3rem 0 0;'>多 Agent 需求分析系统</h2>"
+            "<p style='color:#6B7280; margin:0.35rem 0 1.1rem;'>演示需访问口令 · 防止付费 API 被刷</p>"
+            "</div>",
+            unsafe_allow_html=True,
+        )
+        with st.form("gate_form", border=True):
+            pw = st.text_input("访问口令", type="password", placeholder="请输入访问口令")
+            submitted = st.form_submit_button("进入", type="primary", use_container_width=True)
+        if submitted:
+            if password_matches(pw, configured):
+                st.session_state["authenticated"] = True
+                st.rerun()
+            else:
+                st.error("❌ 口令错误")
     st.stop()
 
 
@@ -138,8 +167,23 @@ with st.sidebar:
         st.rerun()
 
 # ==================== 主区 ====================
-st.title("🤖 多 Agent 需求分析系统")
-st.caption("一句模糊需求 → 5 个 AI Agent 协作 → 专业需求规格说明书（PRD）")
+st.markdown(
+    """
+    <div style="padding-top:0.25rem;">
+      <h1 style="margin:0; font-size:2.15rem;">🤖 多 Agent 需求分析系统</h1>
+      <p style="color:#6B7280; font-size:1.02rem; margin:0.45rem 0 0.95rem;">
+        一句模糊需求 → 5 个 AI Agent 协作 → 专业需求规格说明书（PRD）
+      </p>
+      <div>
+        <span class="pill">🗣 Agent 互质疑</span>
+        <span class="pill">👤 人在回路</span>
+        <span class="pill">🔗 跨系统联动 RAG</span>
+      </div>
+    </div>
+    """,
+    unsafe_allow_html=True,
+)
+st.write("")
 
 phase = st.session_state.phase
 

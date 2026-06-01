@@ -1,0 +1,8 @@
+# Streamlit 主题 —— 干净、专业的浅色配色（演示给人看用）
+[theme]
+base = "light"
+primaryColor = "#4F46E5"            # 靛蓝：按钮 / 强调
+backgroundColor = "#FFFFFF"         # 主背景
+secondaryBackgroundColor = "#F4F6FB" # 侧边栏 / 气泡 / 代码块背景
+textColor = "#1E2235"               # 深岩灰：与白底对比极强，易读
+font = "sans serif"
