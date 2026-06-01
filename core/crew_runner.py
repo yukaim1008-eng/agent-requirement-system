@@ -83,11 +83,9 @@ def _run_single(agent, task, cost_mgr, timeout: float = TASK_TIMEOUT_SECONDS) ->
         operation_name=f"{agent.role} - {task.description[:50]}",
     )
 
-    try:
-        cost_mgr.check_budget(threshold=0.8)
-    except BudgetExceededError as e:
-        logger.error(f"[BUDGET] {str(e)}")
-        raise
+    # 预算护栏：check_budget 在 80% 记 warning 日志；enforce_budget 在 100% 抛 BudgetExceededError 强制停止
+    cost_mgr.check_budget(threshold=0.8)
+    cost_mgr.enforce_budget()
 
     return result
 

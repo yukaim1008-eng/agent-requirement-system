@@ -25,8 +25,10 @@ for _secret_key in ("DEEPSEEK_API_KEY", "TAVILY_API_KEY", "RAG_DIR", "RAG_PYTHON
     except Exception:
         pass
 
-from config import MAX_REVISION_ROUNDS, TAVILY_API_KEY, RAG_DIR, DEEPSEEK_API_KEY
+from config import (MAX_REVISION_ROUNDS, TAVILY_API_KEY, RAG_DIR, DEEPSEEK_API_KEY,
+                    MAX_SESSION_TOKENS, MAX_SESSION_BUDGET_USD)
 from core.crew_runner import analyze_requirement, generate_prd
+from core.cost_manager import CostManager, BudgetExceededError
 from utils.validators import validate_requirement
 from utils.auth import password_matches
 
@@ -79,6 +81,14 @@ _defaults = {
 }
 for k, v in _defaults.items():
     st.session_state.setdefault(k, v)
+
+# 会话级成本管理器：整个浏览器会话共用一个，跨"分析/生成"累计，且不被「重新开始」清空（真·会话预算）
+# 上限由 config 驱动（单一配置源），方便按实际每份报告的真实消耗调整
+if "cost_mgr" not in st.session_state:
+    st.session_state.cost_mgr = CostManager(
+        max_session_tokens=MAX_SESSION_TOKENS,
+        max_session_budget_usd=MAX_SESSION_BUDGET_USD,
+    )
 
 
 def _reset():
@@ -155,6 +165,15 @@ with st.sidebar:
     st.caption(("✅ 真实联网搜索" if TAVILY_API_KEY else "🟡 搜索降级为 LLM 模拟"))
     st.caption(("✅ RAG 历史经验联动" if RAG_DIR else "🟡 RAG 未配置（评估走通用经验）"))
     st.divider()
+    st.subheader("💰 本会话成本")
+    _mgr = st.session_state.cost_mgr
+    _tok, _tokmax = _mgr.total_tokens_used(), _mgr.max_session_tokens
+    _cost = _mgr.total_cost_usd()
+    _mc1, _mc2 = st.columns(2)
+    _mc1.metric("Tokens", f"{_tok:,}")
+    _mc2.metric("花费 (USD)", f"${_cost:.4f}")
+    st.progress(min(_tok / _tokmax, 1.0) if _tokmax else 0.0, text=f"用量 {_tok:,} / {_tokmax:,} tokens")
+    st.divider()
     st.subheader("✨ 三大亮点")
     st.markdown(
         "- **Agent 互质疑**：评估员可退回分析师改\n"
@@ -208,7 +227,11 @@ if phase == "input":
 
     if st.button("① 分析需求", type="primary", disabled=not req_stripped or not is_valid):
         with st.spinner("协调员拆解任务 + 需求分析师分析中…"):
-            result = analyze_requirement(req_stripped)
+            try:
+                result = analyze_requirement(req_stripped, cost_mgr=st.session_state.cost_mgr)
+            except BudgetExceededError:
+                st.error(f"⛔ 已达会话预算上限 ${st.session_state.cost_mgr.max_session_budget_usd:.2f}，已停止。可在 config.py 调高 MAX_SESSION_BUDGET_USD。")
+                st.stop()
         st.session_state.requirement = req_stripped
         st.session_state.analysis_result = result
         st.session_state.phase = "review"
@@ -226,16 +249,29 @@ elif phase == "review":
     c1, c2 = st.columns([1, 1])
     if c1.button("② 确认并生成 PRD", type="primary", use_container_width=True):
         stages = []
-        with st.status("多 Agent 协作生成中…（研究 → 评估 → 互质疑 → 文档，约 2-4 分钟）",
-                       expanded=True) as status:
-            def on_stage(stage, content):
-                stages.append((stage, content))
-                emoji, name = AGENT_META.get(stage, ("🤖", stage))
-                status.write(f"{emoji} **{name}** 完成")
+        mgr = st.session_state.cost_mgr
+        try:
+            with st.status("多 Agent 协作生成中…（研究 → 评估 → 互质疑 → 文档，约 2-4 分钟）",
+                           expanded=True) as status:
+                prog = st.progress(0.0, text="协作中…")
 
-            result = generate_prd(st.session_state.requirement, edited,
-                                  on_stage=on_stage, max_rounds=max_rounds)
-            status.update(label="✅ 生成完成！", state="complete")
+                def on_stage(stage, content):
+                    stages.append((stage, content))
+                    emoji, name = AGENT_META.get(stage, ("🤖", stage))
+                    status.write(f"{emoji} **{name}** 完成")
+                    # 实时消耗：进度条按阶段推进，文字显示累计 token / 花费
+                    prog.progress(
+                        min(len(stages) / 3, 0.95),
+                        text=f"已消耗 {mgr.total_tokens_used():,} tokens · ${mgr.total_cost_usd():.4f}",
+                    )
+
+                result = generate_prd(st.session_state.requirement, edited,
+                                      on_stage=on_stage, max_rounds=max_rounds, cost_mgr=mgr)
+                prog.progress(1.0, text=f"完成 · 本会话累计 {mgr.total_tokens_used():,} tokens · ${mgr.total_cost_usd():.4f}")
+                status.update(label="✅ 生成完成！", state="complete")
+        except BudgetExceededError:
+            st.error(f"⛔ 已达会话预算上限 ${mgr.max_session_budget_usd:.2f}，已停止以防超支。可在 config.py 调高 MAX_SESSION_BUDGET_USD。")
+            st.stop()
         st.session_state.stages = stages
         st.session_state.final_result = result
         st.session_state.phase = "done"

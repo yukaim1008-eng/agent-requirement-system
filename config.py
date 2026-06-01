@@ -25,7 +25,7 @@ LLM_MAX_TOKENS = 4096
 MAX_REVISION_ROUNDS = 1    # 技术评估员打回后，需求分析师最多修订几轮（防止无限循环）
 
 # ==================== 成本控制 ====================
-MAX_SESSION_TOKENS = 100000          # 单个会话最大 Token 数
+MAX_SESSION_TOKENS = 500000          # 单个会话最大 Token 数（≈ 够跑好几份报告再触发；DeepSeek 成本极低，真正起防刷护栏作用的是这个 token 上限，而非下面的 $ 预算）
 MAX_SESSION_BUDGET_USD = 5.0         # 单个会话最大预算（美元）
 COST_WARNING_THRESHOLD = 0.8         # 预算告警阈值（80% 时告警）
 
