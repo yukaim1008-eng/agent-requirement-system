@@ -10,11 +10,15 @@
 （比 CrewAI 自动 hierarchical 更透明、可演示、易接入 Streamlit）
 """
 import re
+import time
+import logging
 from datetime import date
 
 from crewai import Crew, Process
 
-from config import MAX_REVISION_ROUNDS
+from config import MAX_REVISION_ROUNDS, TASK_TIMEOUT_SECONDS, MAX_REVISION_TASK_TIMEOUT
+from core.cost_manager import get_cost_manager, BudgetExceededError
+from core.resilience import safe_run_with_timeout
 from agents.builder import build_agents
 from tasks.builder import (
     make_coordination_task,
@@ -25,11 +29,45 @@ from tasks.builder import (
 )
 from tools.doc_tool import export_prd_to_docx
 
+logger = logging.getLogger(__name__)
 
-def _run_single(agent, task) -> str:
-    """用单 Agent 单任务的 Crew 执行一个阶段，返回文本产出。"""
-    crew = Crew(agents=[agent], tasks=[task], process=Process.sequential, verbose=False)
-    return str(crew.kickoff())
+
+def _run_single(agent, task, timeout: float = TASK_TIMEOUT_SECONDS) -> str:
+    """
+    用单 Agent 单任务的 Crew 执行一个阶段，返回文本产出。
+
+    包含超时保护和降级方案。
+
+    Args:
+        agent: 要执行的 Agent
+        task: 要执行的 Task
+        timeout: 超时时间（秒）
+
+    Returns:
+        Crew 执行结果，或降级内容
+    """
+    cost_mgr = get_cost_manager()
+
+    def run_crew():
+        crew = Crew(agents=[agent], tasks=[task], process=Process.sequential, verbose=False)
+        return str(crew.kickoff())
+
+    # 使用超时保护执行
+    fallback_content = f"[降级] {agent.role} 因超时未能完成，采用通用模板内容。\n\n请用户根据上下文补充此部分的细节。"
+    result = safe_run_with_timeout(
+        run_crew,
+        timeout_seconds=timeout,
+        fallback=fallback_content,
+        operation_name=f"{agent.role} - {task.description[:50]}",
+    )
+
+    try:
+        cost_mgr.check_budget(threshold=0.8)
+    except BudgetExceededError as e:
+        logger.error(f"[BUDGET] {str(e)}")
+        raise
+
+    return result
 
 
 def _parse_verdict(evaluation_text: str):
@@ -93,9 +131,18 @@ def generate_prd(user_requirement: str, analysis: str, on_stage=None,
             break
         rounds += 1
         emit("互质疑", f"⚠️ 技术评估员提出质疑，退回需求分析师修订（第 {rounds} 轮）：{feedback}")
-        analysis = _run_single(agents["analyst"], make_analysis_task(agents["analyst"], user_requirement, feedback))
+        # 互质疑修订使用更短的超时
+        analysis = _run_single(
+            agents["analyst"],
+            make_analysis_task(agents["analyst"], user_requirement, feedback),
+            timeout=MAX_REVISION_TASK_TIMEOUT
+        )
         emit("需求修订", analysis)
-        evaluation = _run_single(agents["evaluator"], make_evaluation_task(agents["evaluator"], analysis, research))
+        evaluation = _run_single(
+            agents["evaluator"],
+            make_evaluation_task(agents["evaluator"], analysis, research),
+            timeout=MAX_REVISION_TASK_TIMEOUT
+        )
         emit("重新评估", evaluation)
 
     # 文档汇总

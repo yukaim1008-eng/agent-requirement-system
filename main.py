@@ -17,6 +17,7 @@ import streamlit as st
 
 from config import MAX_REVISION_ROUNDS, TAVILY_API_KEY, RAG_DIR, DEEPSEEK_API_KEY
 from core.crew_runner import analyze_requirement, generate_prd
+from utils.validators import validate_requirement
 
 st.set_page_config(page_title="多 Agent 需求分析系统", page_icon="🤖", layout="wide")
 
@@ -106,10 +107,17 @@ if phase == "input":
             st.session_state.requirement = ex
             st.rerun()
 
-    if st.button("① 分析需求", type="primary", disabled=not req.strip()):
+    # 输入验证
+    req_stripped = req.strip()
+    is_valid, validation_error = validate_requirement(req_stripped) if req_stripped else (False, "需求文本不能为空")
+
+    if req_stripped and not is_valid:
+        st.error(f"❌ {validation_error}")
+
+    if st.button("① 分析需求", type="primary", disabled=not req_stripped or not is_valid):
         with st.spinner("协调员拆解任务 + 需求分析师分析中…"):
-            result = analyze_requirement(req.strip())
-        st.session_state.requirement = req.strip()
+            result = analyze_requirement(req_stripped)
+        st.session_state.requirement = req_stripped
         st.session_state.analysis_result = result
         st.session_state.phase = "review"
         st.rerun()

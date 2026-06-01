@@ -24,6 +24,23 @@ LLM_MAX_TOKENS = 4096
 # ==================== 互质疑 / 多轮修订配置 ====================
 MAX_REVISION_ROUNDS = 1    # 技术评估员打回后，需求分析师最多修订几轮（防止无限循环）
 
+# ==================== 成本控制 ====================
+MAX_SESSION_TOKENS = 100000          # 单个会话最大 Token 数
+MAX_SESSION_BUDGET_USD = 5.0         # 单个会话最大预算（美元）
+COST_WARNING_THRESHOLD = 0.8         # 预算告警阈值（80% 时告警）
+
+# ==================== 超时保护 ====================
+TASK_TIMEOUT_SECONDS = 600           # 单个 Task 的超时时间（秒）
+MAX_REVISION_TASK_TIMEOUT = 300      # 互质疑修订任务的超时（秒，更短）
+
+# ==================== 缓存策略 ====================
+CACHE_TTL_SECONDS = 86400            # 缓存有效期（24h）
+ENABLE_CACHE = True                  # 是否启用缓存
+
+# ==================== 日志配置 ====================
+LOG_LEVEL = "INFO"                   # 日志级别：DEBUG / INFO / WARNING / ERROR
+ENABLE_STRUCTURED_LOGGING = True     # 是否输出结构化日志（JSON）
+
 # ==================== 5 个 Agent 角色定义 ====================
 # CrewAI 的 Agent 用 role/goal/backstory 三段式描述身份，集中放这里便于调优
 AGENT_PROFILES = {
