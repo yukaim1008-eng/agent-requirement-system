@@ -1,0 +1,6 @@
+crewai
+langchain-deepseek
+tavily-python
+streamlit
+python-docx
+python-dotenv
