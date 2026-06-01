@@ -15,9 +15,20 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import streamlit as st
 
+# 把 Streamlit Cloud 的 Secrets 桥接成环境变量，让 config.py 的 os.getenv 在云端也能拿到 key。
+# （Cloud 上没有 .env 文件；secrets 不保证会自动进 os.environ，所以这里显式搬一次。
+#   本地没有 secrets 时，访问 st.secrets 会抛异常，被 try 安全跳过，走 .env 那条路。）
+for _secret_key in ("DEEPSEEK_API_KEY", "TAVILY_API_KEY", "RAG_DIR", "RAG_PYTHON", "APP_ACCESS_PASSWORD"):
+    try:
+        if _secret_key not in os.environ and _secret_key in st.secrets:
+            os.environ[_secret_key] = str(st.secrets[_secret_key])
+    except Exception:
+        pass
+
 from config import MAX_REVISION_ROUNDS, TAVILY_API_KEY, RAG_DIR, DEEPSEEK_API_KEY
 from core.crew_runner import analyze_requirement, generate_prd
 from utils.validators import validate_requirement
+from utils.auth import password_matches
 
 st.set_page_config(page_title="多 Agent 需求分析系统", page_icon="🤖", layout="wide")
 
@@ -66,6 +77,43 @@ def render_bubble(stage: str, content: str):
         else:
             st.markdown(content)
 
+
+def _check_access():
+    """公网 demo 的共享口令门控。未配置口令时 = 开放（本地开发用）。
+
+    口令来源：Streamlit secrets 的 APP_ACCESS_PASSWORD，或同名环境变量 / .env。
+    部署到公网时务必配置，否则任何人都能跑、消耗你的 API 额度。
+    """
+    configured = None
+    try:
+        if "APP_ACCESS_PASSWORD" in st.secrets:
+            configured = st.secrets["APP_ACCESS_PASSWORD"]
+    except Exception:
+        pass
+    configured = configured or os.getenv("APP_ACCESS_PASSWORD")
+
+    if not configured:
+        # 没配口令 = 开放模式。给个不显眼提示，防止部署时忘配而"裸奔"。
+        st.sidebar.caption("🔓 开放模式（未设访问口令）· 公网部署请在 secrets 配 APP_ACCESS_PASSWORD")
+        return
+
+    if st.session_state.get("authenticated"):
+        return
+
+    # 未通过验证：只渲染口令框，st.stop() 挡住后面所有内容（含侧边栏与主区）
+    st.title("🔒 访问验证")
+    st.caption("这是一个会调用付费 API 的演示，已加口令防止成本被刷。请输入访问口令继续。")
+    pw = st.text_input("访问口令", type="password")
+    if st.button("进入", type="primary"):
+        if password_matches(pw, configured):
+            st.session_state["authenticated"] = True
+            st.rerun()
+        else:
+            st.error("❌ 口令错误")
+    st.stop()
+
+
+_check_access()
 
 # ==================== 侧边栏 ====================
 with st.sidebar:
