@@ -156,6 +156,15 @@ def safe_run_crew(
         return fallback
 
 
+# 连接中断类异常 —— 这些错误重试无效（对方已经 RST / 拒绝），应快速失败
+_CONNECTION_FATAL_ERRORS = (
+    ConnectionResetError,    # [WinError 10054] 远程主机强迫关闭连接
+    ConnectionRefusedError,  # 对方端口拒绝
+    ConnectionAbortedError,  # 连接被中止
+    BrokenPipeError,         # 管道断裂
+    TimeoutError,            # 连接超时（不同于我们自己的超时）
+)
+
 def safe_run_with_timeout(
     func: Callable[..., str],
     timeout_seconds: float = 600.0,
@@ -163,7 +172,11 @@ def safe_run_with_timeout(
     operation_name: str = "operation",
 ) -> str:
     """
-    使用多线程实现跨平台的超时保护
+    使用多线程实现跨平台的超时保护。
+
+    关键改进：
+      - ConnectionResetError 等连接中断类异常 → 快速失败（不等超时），直接降级
+      - 线程在超时后不会被 join() 无限阻塞（daemon 线程主进程退出时自动回收）
 
     Args:
         func: 要执行的函数
@@ -178,16 +191,33 @@ def safe_run_with_timeout(
 
     result_holder = {"value": fallback}
     exception_holder = {"error": None}
+    # 缩短的连接探测间隔：每 5 秒检查一次线程是否已死 / 是否遇到连接中断
+    _POLL_INTERVAL = 5.0
 
     def run_in_thread():
         try:
             result_holder["value"] = func()
+        except _CONNECTION_FATAL_ERRORS as e:
+            # 连接中断 → 打标记让主线程快速感知，不走完整超时
+            exception_holder["error"] = e
+            logger.warning(f"[CONNECTION-FATAL] {operation_name} 连接被远端中断：{e}")
         except Exception as e:
             exception_holder["error"] = e
 
     thread = threading.Thread(target=run_in_thread, daemon=True)
     thread.start()
-    thread.join(timeout=timeout_seconds)
+
+    # 分段 join：每 _POLL_INTERVAL 检查一次，连接中断时立即退出，不傻等 timeout_seconds
+    elapsed = 0.0
+    while elapsed < timeout_seconds:
+        thread.join(timeout=_POLL_INTERVAL)
+        if not thread.is_alive():
+            break  # 线程已结束，正常 / 异常都立即处理
+        if exception_holder["error"] is not None and isinstance(exception_holder["error"], _CONNECTION_FATAL_ERRORS):
+            # 连接已死，线程可能还在 futile retry → 不等了，直接降级
+            logger.error(f"[FAST-FAIL] {operation_name} 连接中断，不等超时直接降级（已等待 {elapsed:.0f}s）")
+            return fallback
+        elapsed += _POLL_INTERVAL
 
     if thread.is_alive():
         logger.error(f"[TIMEOUT] {operation_name} 超时（{timeout_seconds}s），采用降级方案")
